@@ -1,5 +1,7 @@
 """FastAPI application factory."""
 
+import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -10,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.health import router as health_router
+from app.api.incidents import router as incidents_router
 from app.api.webhooks import router as webhooks_router
 from app.core.config import Settings, get_settings
 from app.core.errors import install_error_handlers
@@ -18,6 +21,8 @@ from app.core.middleware import RequestContextMiddleware
 from app.db.migrate import upgrade_to_head
 from app.db.models import AuditEvent
 from app.db.session import get_sessionmaker
+from app.slack.config import get_slack_settings
+from app.slack.routes import router as slack_router
 
 logger = logging.getLogger("app")
 
@@ -49,7 +54,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "startup complete",
             extra={"version": __version__, "env": settings.app_env},
         )
+        stop, bridge_task = asyncio.Event(), None
+        if get_slack_settings().bridge_in_api:
+            from app.slack.api import SlackClient
+            from app.slack.bridge import SlackBridge
+
+            slack_client = SlackClient(get_slack_settings().api_base)
+            bridge_task = asyncio.create_task(SlackBridge(slack_client).run_forever(stop))
         yield
+        if bridge_task:
+            stop.set()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(bridge_task, 10)
+            await slack_client.aclose()
         logger.info("shutdown")
 
     app = FastAPI(title="BLACKBOX API", version=__version__, lifespan=lifespan)
@@ -64,6 +81,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_error_handlers(app)
     app.include_router(health_router)
     app.include_router(webhooks_router)
+    app.include_router(incidents_router)
+    app.include_router(slack_router)
     return app
 
 

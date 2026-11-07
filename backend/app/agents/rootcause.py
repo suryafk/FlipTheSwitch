@@ -130,6 +130,14 @@ class RootCause:
 
     async def progress(self, room_id: str, milestone: str, text: str) -> None:
         await self.rt.post(room_id, f"{milestone}: {text}")
+        # Record the milestone too, so human-facing views (dashboard, Slack) read it from the
+        # audit log rather than from the room.
+        incident = store.incident_by_room(room_id) or {}
+        store.audit(
+            "agent.progress",
+            "rootcause",
+            {"incident_id": incident.get("incident_id"), "milestone": milestone, "text": text},
+        )
 
     async def remediate(self, room_id: str, handoff: dict[str, Any]) -> None:
         try:
@@ -235,6 +243,9 @@ class RootCause:
                 agent_meta = await asyncio.to_thread(self._run_claude_code, wt, brief)
             problems = await asyncio.to_thread(patch.post_checks, wt)
             names = await asyncio.to_thread(patch.new_test_names, wt, head)
+            await self.progress(
+                room_id, "TESTS_RUNNING", f"{rid}: running the regression suite in the worktree"
+            )
             tests = await asyncio.to_thread(patch.run_tests, wt)
             proof = (
                 await asyncio.to_thread(patch.new_tests_fail_on_base, wt, head, names)

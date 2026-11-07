@@ -1,6 +1,9 @@
 import { NavLink } from "react-router-dom";
 
-const ITEMS = [{ to: "/dashboard", label: "Dashboard" }];
+const ITEMS = [
+  { to: "/dashboard", label: "Dashboard" },
+  { to: "/settings/slack", label: "Slack" },
+];
 
 export function SideNav() {
   return (

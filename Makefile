@@ -9,7 +9,7 @@ BLACKBOX_BACKEND_PORT ?= 8010
 COMPOSE := docker compose -f infra/docker-compose.yml --project-directory . -p blackbox
 
 .PHONY: help env setup dev-backend dev-frontend migrate test test-backend test-frontend \
-        lint format up down logs ps clean switch-proof switch-proof-auto switch-verify \
+        lint format up down logs ps clean slack-key slack-bridge slack-live-test switch-proof switch-proof-auto switch-verify \
         agents-bootstrap sim-reset sim-trigger sim-status stack-up stack-down stack-status
 
 help: ## Show this help
@@ -57,6 +57,15 @@ stack-down: ## Stop everything started by stack-up
 
 stack-status: ## Show which stack components are running
 	scripts/stack.sh status
+
+slack-key: ## Print a new BLACKBOX_SECRET_KEY (Fernet) for encrypting Slack tokens
+	cd backend && uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+slack-bridge: ## Run the Slack event bridge as its own process (set SLACK_BRIDGE_IN_API=false)
+	cd backend && uv run python -m app.slack.bridge
+
+slack-live-test: ## Genuine Slack test (needs SLACK_LIVE_TEST=1, SLACK_LIVE_BOT_TOKEN, SLACK_LIVE_CHANNEL_ID)
+	cd backend && uv run pytest -p no:cacheprovider -rs tests/integration/test_slack_live.py
 
 migrate: ## Apply database migrations (also run automatically at API startup)
 	cd backend && uv run alembic upgrade head

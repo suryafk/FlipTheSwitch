@@ -66,4 +66,4 @@ def test_upgrade_is_idempotent(db_url: str) -> None:
     upgrade_to_head(db_url)
     with get_engine().connect() as conn:
         version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0002_incident_store"
+    assert version == "0003_slack"

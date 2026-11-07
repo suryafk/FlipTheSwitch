@@ -124,6 +124,14 @@ def create_incident(service: str, title: str, fingerprint: str, alert: dict, act
     return get_incident(incident_id) or {}
 
 
+def latest_incident() -> dict[str, Any] | None:
+    return _row("SELECT * FROM incidents ORDER BY created_at DESC LIMIT 1")
+
+
+def list_incidents(limit: int = 50) -> list[dict[str, Any]]:
+    return _rows("SELECT * FROM incidents ORDER BY created_at DESC LIMIT :n", n=limit)
+
+
 def get_incident(incident_id: str) -> dict[str, Any] | None:
     return _row("SELECT * FROM incidents WHERE incident_id=:i", i=incident_id)
 
