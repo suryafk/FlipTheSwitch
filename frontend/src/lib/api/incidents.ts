@@ -27,3 +27,7 @@ export function getIncident(
 ): Promise<{ incident: Incident; timeline: TimelineEntry[] }> {
   return apiGet(`/api/incidents/${encodeURIComponent(id)}`, { signal });
 }
+
+export function listIncidents(signal?: AbortSignal): Promise<{ incidents: Incident[] }> {
+  return apiGet("/api/incidents", { signal });
+}

@@ -157,7 +157,31 @@ internet. Locally, use a tunnel (for example `cloudflared tunnel --url http://lo
 
    Then try `/blackbox help` in the channel.
 
-**Without a tunnel (manual token import).** Install the app from the Slack app page
+**Without a tunnel (manual token import).** Slack validates every URL in a manifest, so the
+placeholder `<tunnel>` URLs above are rejected. For notifications only, create the app from this
+manifest, which has no URLs and no slash command:
+
+```yaml
+display_information:
+  name: BLACKBOX
+  description: Incident notifications from BLACKBOX (read-only)
+features:
+  bot_user:
+    display_name: BLACKBOX
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - channels:read
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
+```
+
+You can add the redirect URL, the `commands` scope and the slash command later, once you have a
+tunnel. Then install the app from the Slack app page
 (**Install App**), copy the **Bot User OAuth Token** (`xoxb-…`) and import it. The backend checks
 it with `auth.test`, encrypts it and stores it. Slash commands still need a public URL.
 

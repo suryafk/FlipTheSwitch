@@ -1,8 +1,75 @@
-import { useOutletContext } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 
 import { Panel } from "../components/ui/Panel";
-import { StatusBadge } from "../components/ui/StatusBadge";
+import { StatusBadge, type StatusTone } from "../components/ui/StatusBadge";
 import type { BackendHealthState } from "../hooks/useBackendHealth";
+import { usePolling } from "../hooks/usePolling";
+import { listIncidents, type Incident } from "../lib/api/incidents";
+
+const DONE = new Set(["RESOLVED", "POSTMORTEM_GENERATED", "PREVENTIVE_TASKS_CREATED"]);
+const ATTENTION = new Set(["NEEDS_HUMAN", "FAILED", "ROLLED_BACK", "ROLLING_BACK"]);
+
+function stateTone(state: string): StatusTone {
+  if (DONE.has(state)) return "success";
+  if (ATTENTION.has(state)) return "critical";
+  if (state === "AWAITING_APPROVAL") return "warning";
+  return "info";
+}
+
+function when(value: string) {
+  // The API returns UTC timestamps without a zone ("2026-11-07 06:42:50").
+  const d = new Date(/[zZ+]/.test(value.slice(10)) ? value : `${value.replace(" ", "T")}Z`);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+}
+
+function IncidentRow({ incident }: { incident: Incident }) {
+  return (
+    <li className="border-t border-border-subtle py-2 first:border-0 first:pt-0">
+      <Link
+        to={`/incidents/${incident.incident_id}`}
+        className="flex flex-col gap-1 rounded hover:bg-raised"
+      >
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-sm font-semibold text-fg">{incident.incident_id}</span>
+          <span className="text-xs text-fg-muted">
+            {incident.service} · {incident.severity ?? "SEV-?"}
+          </span>
+          <StatusBadge tone={stateTone(incident.state)} label={incident.state} />
+        </span>
+        <span className="text-sm text-fg-muted">{incident.title}</span>
+        <span className="text-xs text-fg-subtle">
+          Opened {when(incident.created_at)} · updated {when(incident.updated_at)}
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+function IncidentsPanel() {
+  const state = usePolling(listIncidents, 5_000, "incidents");
+  if (state.kind === "loading") return <p className="text-fg-subtle">Loading incidents…</p>;
+  if (state.kind === "error") {
+    return <p className="text-critical">Could not load incidents: {state.error.message}</p>;
+  }
+  const incidents = state.data.incidents ?? [];
+  if (incidents.length === 0) {
+    return (
+      <>
+        <p className="text-fg-muted">No incidents recorded.</p>
+        <p className="mt-1 text-xs text-fg-subtle">
+          Incidents appear here when Sentinel opens one from a verified monitoring alert.
+        </p>
+      </>
+    );
+  }
+  return (
+    <ul>
+      {incidents.map((incident) => (
+        <IncidentRow key={incident.incident_id} incident={incident} />
+      ))}
+    </ul>
+  );
+}
 
 function BackendPanel({ state }: { state: BackendHealthState }) {
   if (state.kind === "loading") {
@@ -69,12 +136,8 @@ export function DashboardPage() {
         <Panel title="Backend">
           <BackendPanel state={backend} />
         </Panel>
-        <Panel title="Active incidents">
-          <p className="text-fg-muted">No incident data yet.</p>
-          <p className="mt-1 text-xs text-fg-subtle">
-            Incidents are not shown in the UI yet: the agents run through Switch, and their activity
-            is visible in the Mattermost incident channel. Nothing on this page is simulated.
-          </p>
+        <Panel title="Incidents">
+          <IncidentsPanel />
         </Panel>
       </div>
     </div>
