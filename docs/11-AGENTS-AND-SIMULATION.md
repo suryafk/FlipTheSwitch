@@ -126,6 +126,7 @@ DETECTED → INVESTIGATING → ROOT_CAUSE_IDENTIFIED → REMEDIATION_STAGED → 
 | F14 | Mattermost (amd64-only, emulated) hung 3 more times. One approval card rendered **without buttons** after a restart | Restart Mattermost. The card's typed handle (`A<n> <option>`) is the documented alternative. **G2 remains open.** |
 | F15 | The launcher validated the body before the token (422 instead of 401) | Authenticate first (constant-time comparison) |
 | F16 | After the host slept, the open-loop load generator burst every missed request and wedged. The executor then saw 0 traffic and **correctly rolled back** instead of claiming recovery | Skip missed arrivals; cap in-flight requests |
+| F17 | One load-generator process saturated a CPU core at ~120 rps once ~500 requests were in flight, so the service saw only ~55–62 rps and the outage looked smaller; a manual restart also left orphaned workers that doubled load to ~240 rps | Split the rate across 4 worker processes (SIM_LOAD_WORKERS); parent forwards SIGTERM, workers exit when orphaned. Verified at 120 rps: 5xx 20.27% → 0.22%, p50 4060 → 101 ms |
 | F17 | `source .env` stripped the quotes inside the JSON-valued `BLACKBOX_CORS_ORIGINS` | Single-quote the value |
 | F18 | Sentinel's first message uses the alert's early severity (SEV-2), before the metrics settle; the incident is then correctly upgraded (SEV-1) | Open: post the severity after evidence collection |
 
