@@ -47,7 +47,7 @@ TRANSITIONS: dict[tuple[str, str], str | tuple[str, ...]] = {
     ("RESOLVED", "POSTMORTEM_GENERATED"): "recovery",
     ("POSTMORTEM_GENERATED", "PREVENTIVE_TASKS_CREATED"): "recovery",
 }
-TERMINAL = {"PREVENTIVE_TASKS_CREATED", "FAILED"}
+TERMINAL = {"PREVENTIVE_TASKS_CREATED", "FAILED", "CLOSED"}
 
 
 class TransitionError(Exception):
@@ -180,6 +180,45 @@ def transition(incident_id: str, to_state: str, actor: str, reason: str) -> str:
         {"incident_id": incident_id, "from": current, "to": to_state, "reason": reason},
     )
     return to_state
+
+
+def close_incident(incident_id: str, actor: str, reason: str) -> bool:
+    """Administrative close (demo reset): any non-terminal incident -> CLOSED, audited.
+
+    Not an agent transition: agents never call this. It exists so a reset can clear an
+    incident left open (e.g. NEEDS_HUMAN after an expired approval) without deleting history.
+    """
+    with _session() as s:
+        current = s.execute(
+            text("SELECT state FROM incidents WHERE incident_id=:i"), {"i": incident_id}
+        ).scalar_one_or_none()
+        if current is None or current in TERMINAL:
+            return False
+        s.execute(
+            text(
+                "UPDATE incidents SET state='CLOSED', updated_at=CURRENT_TIMESTAMP "
+                "WHERE incident_id=:i AND state=:c"
+            ),
+            {"i": incident_id, "c": current},
+        )
+        s.commit()
+    audit(
+        "incident.transition",
+        actor,
+        {"incident_id": incident_id, "from": current, "to": "CLOSED", "reason": reason},
+    )
+    return True
+
+
+def open_incidents() -> list[dict[str, Any]]:
+    terminal = ",".join(f"'{t}'" for t in TERMINAL)
+    return _rows(f"SELECT * FROM incidents WHERE state NOT IN ({terminal}) ORDER BY created_at")
+
+
+def open_approvals() -> list[dict[str, Any]]:
+    return _rows(
+        "SELECT approval_id, incident_id, status FROM approvals WHERE status IN ('bound', 'open')"
+    )
 
 
 # ---------- handoffs ----------

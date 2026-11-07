@@ -88,6 +88,35 @@ describe("App shell", () => {
     expect(screen.getByText("payment-service: PaymentServiceHighLatency")).toBeInTheDocument();
   });
 
+  it("shows demo pre-flight readiness with fixes for failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routeFetch({
+        "/api/health": () => jsonResponse(200, HEALTHY),
+        "/api/incidents": () => jsonResponse(200, { incidents: [] }),
+        "/api/preflight": () =>
+          jsonResponse(200, {
+            ready: false,
+            checked_at: "2026-11-07T12:00:00Z",
+            checks: [
+              { name: "Switch server", ok: true, critical: true, detail: "healthy", fix: "" },
+              {
+                name: "No incident open",
+                ok: false,
+                critical: true,
+                detail: "INC-1044 (NEEDS_HUMAN)",
+                fix: "make demo-reset",
+              },
+            ],
+          }),
+      }),
+    );
+    renderAt("/dashboard");
+    expect(await screen.findByText("Not ready")).toBeInTheDocument();
+    expect(screen.getByText("INC-1044 (NEEDS_HUMAN)")).toBeInTheDocument();
+    expect(screen.getByText("→ make demo-reset")).toBeInTheDocument();
+  });
+
   it("reports when incidents cannot be loaded", async () => {
     vi.stubGlobal(
       "fetch",

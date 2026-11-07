@@ -1,5 +1,6 @@
 import { Link, useOutletContext } from "react-router-dom";
 
+import { PreflightPanel } from "../components/PreflightPanel";
 import { Panel } from "../components/ui/Panel";
 import { StatusBadge, type StatusTone } from "../components/ui/StatusBadge";
 import type { BackendHealthState } from "../hooks/useBackendHealth";
@@ -132,6 +133,7 @@ export function DashboardPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-4">
       <h1 className="text-2xl font-semibold">Incident Command Dashboard</h1>
+      <PreflightPanel />
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Backend">
           <BackendPanel state={backend} />

@@ -10,7 +10,7 @@ COMPOSE := docker compose -f infra/docker-compose.yml --project-directory . -p b
 
 .PHONY: help env setup dev-backend dev-frontend migrate test test-backend test-frontend \
         lint format up down logs ps clean slack-key slack-bridge slack-live-test switch-proof switch-proof-auto switch-livecheck switch-live-test switch-bridges switch-revoke switch-verify \
-        agents-bootstrap sim-reset sim-trigger sim-scenarios sim-surge-off sim-status stack-up stack-down stack-status
+        agents-bootstrap sim-reset sim-trigger sim-scenarios sim-surge-off demo-reset preflight sim-status stack-up stack-down stack-status
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' Makefile | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -57,6 +57,12 @@ sim-reset: ## Reset the simulation to HEALTHY (deploy #841); stop the stack firs
 
 sim-trigger: ## Trigger a fault (SCENARIO=pool-exhaustion|pool-pgbouncer|processor-timeout|traffic-surge)
 	set -a && . ./.env && set +a && cd simulator && uv run python -m simulator.ctl trigger $(SCENARIO)
+
+demo-reset: ## Reset everything to a READY demo state (ARGS=--keep-switch to skip the Switch restart)
+	cd backend && uv run python -m app.demo.reset $(ARGS)
+
+preflight: ## Demo pre-flight checklist (exit 1 if not ready)
+	cd backend && uv run python -m app.demo.preflight
 
 sim-scenarios: ## List the fault scenarios
 	cd simulator && uv run python -m simulator.ctl scenarios

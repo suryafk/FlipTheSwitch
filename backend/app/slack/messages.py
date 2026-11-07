@@ -131,6 +131,7 @@ TRANSITIONS: dict[str, tuple[str, str, str]] = {
     "ROLLED_BACK": ("executor", "Rolled back ({reason})", "warning"),
     "FAILED": ("executor", "Execution failed ({reason}); needs attention", "warning"),
     "NEEDS_HUMAN": ("", "Needs a human: {reason}", "warning"),
+    "CLOSED": ("", "Incident closed: {reason}", "warning"),
     "NEEDS_REVISION": ("recovery", "Fix sent back for revision: {reason}", "warning"),
     "PREVENTIVE_TASKS_CREATED": (
         "recovery",
