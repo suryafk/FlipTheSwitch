@@ -1,0 +1,31 @@
+[project]
+name = "blackbox-simulator"
+version = "0.1.0"
+description = "Payment-service incident simulation for BLACKBOX (launcher, load generator, monitor)."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.34,<1",
+    "sqlalchemy[asyncio]>=2.0.36,<3",
+    "aiosqlite>=0.20,<1",
+    "pyyaml>=6,<7",
+    "httpx>=0.28,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<9", "ruff>=0.9,<1"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

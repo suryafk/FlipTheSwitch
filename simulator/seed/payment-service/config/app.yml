@@ -1,0 +1,2 @@
+service: payment-service
+log_level: INFO

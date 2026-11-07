@@ -1,0 +1,3 @@
+# Capacity requirements for payment-service (see RUNBOOK.md#capacity).
+# Measured peak: 120 requests/second x ~100 ms database hold time, plus burst headroom.
+peak_concurrent_db_sessions: 30

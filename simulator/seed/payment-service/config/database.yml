@@ -1,0 +1,6 @@
+# Connection pool for the payments database.
+# Sized for peak concurrency; see config/capacity.yml and RUNBOOK.md#capacity.
+pool_size: 50
+max_overflow: 0
+pool_timeout_seconds: 4
+pool_recycle_seconds: 1800
