@@ -91,3 +91,31 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
     options.signal?.removeEventListener("abort", onAbort);
   }
 }
+
+/** POST with a JSON body; errors become ApiError like apiGet. */
+export async function apiPost<T>(path: string, body: unknown = {}, timeoutMs = 90_000): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (cause) {
+      throw new ApiError(0, "network_error", "Backend unreachable.", null, cause);
+    }
+    const requestId = response.headers.get("X-Request-ID");
+    const data: unknown = await response.json().catch(() => null);
+    if (response.ok) return data as T;
+    if (isErrorEnvelope(data)) {
+      throw new ApiError(response.status, data.error.code, data.error.message, requestId, data);
+    }
+    throw new ApiError(response.status, "http_error", `HTTP ${response.status}`, requestId, data);
+  } finally {
+    clearTimeout(timer);
+  }
+}

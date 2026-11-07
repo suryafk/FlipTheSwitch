@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api.health import router as health_router
 from app.api.incidents import router as incidents_router
+from app.api.simulation import router as simulation_router
 from app.api.warroom import router as warroom_router
 from app.api.webhooks import router as webhooks_router
 from app.core.config import Settings, get_settings
@@ -84,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(webhooks_router)
     app.include_router(incidents_router)
     app.include_router(warroom_router)
+    app.include_router(simulation_router)
     app.include_router(slack_router)
     return app
 

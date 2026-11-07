@@ -10,7 +10,7 @@ COMPOSE := docker compose -f infra/docker-compose.yml --project-directory . -p b
 
 .PHONY: help env setup dev-backend dev-frontend migrate test test-backend test-frontend \
         lint format up down logs ps clean slack-key slack-bridge slack-live-test switch-proof switch-proof-auto switch-livecheck switch-live-test switch-bridges switch-revoke switch-verify \
-        agents-bootstrap sim-reset sim-trigger sim-status stack-up stack-down stack-status
+        agents-bootstrap sim-reset sim-trigger sim-scenarios sim-surge-off sim-status stack-up stack-down stack-status
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' Makefile | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -55,8 +55,14 @@ agents-bootstrap: ## Register the 4 agents, pin identities, create intake (add A
 sim-reset: ## Reset the simulation to HEALTHY (deploy #841); stop the stack first
 	set -a && . ./.env && set +a && cd simulator && uv run python -m simulator.ctl reset
 
-sim-trigger: ## Deploy the faulty commit C5 as deploy #842
-	set -a && . ./.env && set +a && cd simulator && uv run python -m simulator.ctl trigger
+sim-trigger: ## Trigger a fault (SCENARIO=pool-exhaustion|pool-pgbouncer|processor-timeout|traffic-surge)
+	set -a && . ./.env && set +a && cd simulator && uv run python -m simulator.ctl trigger $(SCENARIO)
+
+sim-scenarios: ## List the fault scenarios
+	cd simulator && uv run python -m simulator.ctl scenarios
+
+sim-surge-off: ## End the traffic surge
+	cd simulator && uv run python -m simulator.ctl surge off
 
 sim-status: ## Show launcher state and live service metrics
 	cd simulator && uv run python -m simulator.ctl status

@@ -10,6 +10,7 @@ than it is. Each worker reports its own stats; together they send the configured
 
 import argparse
 import asyncio
+import json
 import multiprocessing as mp
 import os
 import random
@@ -18,9 +19,19 @@ import time
 
 import httpx
 
-from simulator.paths import SERVICE_HOST, SERVICE_PORT
+from simulator.paths import LOAD_CONTROL, SERVICE_HOST, SERVICE_PORT
 
 MAX_IN_FLIGHT_PER_WORKER = 800
+MAX_MULTIPLIER = 8.0
+
+
+def load_multiplier() -> float:
+    """The traffic-surge knob (runtime/load-control.json); 1.0 when absent or unreadable."""
+    try:
+        m = float(json.loads(LOAD_CONTROL.read_text()).get("multiplier", 1.0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 1.0
+    return min(max(m, 0.1), MAX_MULTIPLIER)
 
 
 async def worker(worker_id: int, rate: float, seed: int) -> None:
@@ -49,15 +60,21 @@ async def worker(worker_id: int, rate: float, seed: int) -> None:
                 except httpx.HTTPError:
                     stats["unreachable"] += 1
 
-        interval = 1.0 / rate
+        multiplier = load_multiplier()
+        interval = 1.0 / (rate * multiplier)
         # Stagger workers so their arrivals interleave instead of bunching.
-        start = time.monotonic() + worker_id * interval / max(1, mp.cpu_count())
+        next_at = time.monotonic() + worker_id * interval / max(1, mp.cpu_count())
         i = 0
-        last_report = time.monotonic()
+        last_report = last_control = time.monotonic()
         tasks: set[asyncio.Task] = set()
         while True:
-            target = start + i * interval
-            delay = target - time.monotonic()
+            if time.monotonic() - last_control >= 2:
+                last_control = time.monotonic()
+                m = load_multiplier()
+                if m != multiplier:
+                    print(f"loadgen[{worker_id}]: load multiplier {multiplier} -> {m}", flush=True)
+                    multiplier, interval = m, 1.0 / (rate * m)
+            delay = next_at - time.monotonic()
             if delay > 0:
                 await asyncio.sleep(delay)
             elif delay < -1.0:
@@ -66,7 +83,9 @@ async def worker(worker_id: int, rate: float, seed: int) -> None:
                 behind = int(-delay / interval)
                 stats["skipped"] += behind
                 i += behind
+                next_at += behind * interval
                 continue
+            next_at += interval
             if inflight.locked():
                 stats["shed"] += 1
             else:

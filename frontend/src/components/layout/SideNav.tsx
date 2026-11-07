@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 
 const ITEMS = [
   { to: "/dashboard", label: "Dashboard" },
+  { to: "/simulation", label: "Error simulation" },
   { to: "/settings/slack", label: "Slack" },
 ];
 

@@ -13,6 +13,8 @@ DEPLOYMENTS = RUNTIME / "deployments.jsonl"
 STATE = RUNTIME / "launcher-state.json"
 SHAS = RUNTIME / "shas.json"
 PAYMENTS_DB = RUNTIME / "payments.db"
+# Runtime load control (traffic-surge scenario): {"multiplier": float}. Absent = 1.0.
+LOAD_CONTROL = RUNTIME / "load-control.json"
 
 SERVICE_NAME = "payment-service"
 SERVICE_HOST = "127.0.0.1"

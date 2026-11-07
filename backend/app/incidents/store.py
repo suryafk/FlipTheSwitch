@@ -17,10 +17,11 @@ from app.db.models import AuditEvent
 from app.db.session import get_sessionmaker
 from app.switch.approvals import canonical_json
 
-# (from_state, to_state) -> agent allowed to make that change
-TRANSITIONS: dict[tuple[str, str], str] = {
+# (from_state, to_state) -> agent (or agents) allowed to make that change
+TRANSITIONS: dict[tuple[str, str], str | tuple[str, ...]] = {
     ("DETECTED", "INVESTIGATING"): "sentinel",
-    ("INVESTIGATING", "NEEDS_HUMAN"): "sentinel",
+    # Sentinel when evidence is missing; RootCause when no deploy or change explains the fault.
+    ("INVESTIGATING", "NEEDS_HUMAN"): ("sentinel", "rootcause"),
     ("NEEDS_HUMAN", "INVESTIGATING"): "sentinel",
     ("INVESTIGATING", "ROOT_CAUSE_IDENTIFIED"): "rootcause",
     ("NEEDS_REVISION", "ROOT_CAUSE_IDENTIFIED"): "rootcause",
@@ -163,7 +164,7 @@ def transition(incident_id: str, to_state: str, actor: str, reason: str) -> str:
         if current == to_state:
             return current
         allowed = TRANSITIONS.get((current, to_state))
-        if allowed != actor:
+        if actor not in ((allowed,) if isinstance(allowed, str) else (allowed or ())):
             raise TransitionError(f"{actor} may not move {incident_id} {current} -> {to_state}")
         s.execute(
             text(
