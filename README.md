@@ -7,6 +7,132 @@ An autonomous incident commander for the **Flip the Switch** hackathon (WeMakeDe
 > - The dashboard has a live **war room** for each incident, an **Error simulation** page with four real fault scenarios, and a **demo pre-flight** checklist.
 > - The design docs are in [`docs/`](docs/).
 
+## For judges: run it locally
+
+A full run takes about **20 minutes the first time** (most of it is starting Switch) and about **3 minutes per incident** after that. If you only want to see it work, the demo video shows one complete live run.
+
+### What you need
+
+| Tool | Why |
+|---|---|
+| [uv](https://docs.astral.sh/uv/) 0.13+ | Backend, agents and simulator (it installs Python 3.12 itself) |
+| Node.js 22+ and npm 10+ | Dashboard |
+| Docker with Compose v2 | The Switch stack |
+| GNU make | Every command below |
+| [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude` on `PATH`, logged in) | RootCause uses it to write the fix. Without it, a clearly labelled fallback patch is used. |
+| A Slack workspace (optional) | Without Slack, incident rooms and approval cards use the Mattermost bundled with Switch |
+
+Ports used on `127.0.0.1`: **5180** dashboard, **8010** BLACKBOX API, **8090** payment-service, **8100** Switch, **3000** Switch Gateway, **8065** Mattermost.
+
+### Step 1: install BLACKBOX
+
+```bash
+git clone https://github.com/suryafk/FlipTheSwitch.git && cd FlipTheSwitch
+```
+
+```bash
+make setup
+```
+
+This creates `.env` from `.env.example` and installs the backend and frontend dependencies.
+
+### Step 2: start Switch
+
+Run the official self-hosted Switch stack (see [docs.switchagents.ai](https://docs.switchagents.ai/switch-rooms/getting-started)) with these settings, which BLACKBOX was built and tested against:
+
+- version `SWITCH_VERSION=0.31.0`
+- Compose profiles `collab` and `gateway` (switch-core, Postgres, Mattermost, Gateway)
+- `API_HOST_PORT=8100`
+- Compose project name `blackbox-switch`, so the container is `blackbox-switch-switch-1` (`make demo-reset` restarts it; export `SWITCH_CONTAINER` if yours is named differently)
+
+Check it is up:
+
+```bash
+curl http://127.0.0.1:8100/health
+```
+
+Then sign in to the Gateway at http://localhost:3000 with the admin account the Switch setup created.
+
+### Step 3: fill in `.env`
+
+Only these values are required. Everything else has a working default, and every variable is explained in [`.env.example`](.env.example).
+
+| Variable | Value |
+|---|---|
+| `SWITCH_API_URL` | `http://127.0.0.1:8100` (the default) |
+| `SWITCH_GATEWAY_ADMIN_EMAIL`, `SWITCH_GATEWAY_ADMIN_PASSWORD` | Your Gateway admin login. Used once, to mint a registration key so the agents belong to you. Alternatively set `SWITCH_REGISTRATION_KEY` to a key minted in the Gateway. |
+| `SWITCH_IC_CHAT_USERNAME` | Your username in the chat app where you will approve (Mattermost default: `user`) |
+| `SIM_LAUNCHER_TOKEN` | Any random string, e.g. `openssl rand -hex 32` |
+| `BLACKBOX_WEBHOOK_SECRET` | Another random string |
+
+### Step 4: register the agents (one time)
+
+```bash
+make agents-bootstrap
+```
+
+This registers Sentinel, RootCause, Recovery and Executor in Switch, pins their identities and creates the intake room. If it prints a check message, post it in the new intake channel.
+
+**Optional, to run on Slack:** in the Gateway, open **Apps → Register messaging app** and connect Slack. Run `make switch-bridges`, put the Slack connection's id in `SWITCH_INCIDENT_BRIDGE_ID`, set `SWITCH_IC_CHAT_USERNAME` to your Slack identity, and run `make agents-bootstrap` again. The separate read-only `#incidents` timeline bot is optional; see [`docs/11-SLACK-INTEGRATION.md`](docs/11-SLACK-INTEGRATION.md).
+
+### Step 5: reset and start the demo
+
+```bash
+make demo-reset
+```
+
+In about 30 seconds this closes anything left open, resets the sandbox to the healthy release (#841), restarts Switch for a fresh chat session, starts the stack (launcher, payment-service, load generator, monitor, API and agents) and waits until the pre-flight checklist is green. It ends with `READY FOR THE DEMO`.
+
+Start the dashboard in a second terminal:
+
+```bash
+make dev-frontend
+```
+
+### Step 6: break production and watch it heal
+
+1. Open http://localhost:5180 and go to **Error simulation**.
+2. On **Database pool exhaustion**, press **Trigger**, then **Break it**. This deploys a real bad config change that cuts the DB pool from 50 to 10.
+3. Open the incident's **war room** from the link that appears. Within about a minute the agents have detected it, collected evidence, read the git diff, had Claude Code write a fix plus a regression test, and validated it.
+4. In the incident's chat channel (Mattermost or Slack), find the **approval card**. Try typing "approve" first: nothing happens, because only the card counts. Then press **Approve**.
+5. The Executor re-checks your decision with Switch, deploys the fix and confirms recovery over three measured samples. The war room turns green (typically 5xx ~25% → ~0.2%).
+
+Run another incident with `make demo-reset` first; only one incident can be open at a time. The other scenarios are on the same page (a pool sized against the wrong limit, a card-processor timeout regression, and a traffic surge with no bad deploy, where the agents correctly escalate to a human instead of patching).
+
+From the terminal instead of the dashboard:
+
+```bash
+make sim-trigger SCENARIO=pool-exhaustion
+```
+
+Stop everything:
+
+```bash
+make stack-down
+```
+
+### No Switch? Check the code and tests
+
+The API and dashboard run on their own, and the test suites need no external services:
+
+```bash
+make test
+```
+
+```bash
+make lint
+```
+
+### If something goes wrong
+
+| Symptom | Fix |
+|---|---|
+| `make preflight` shows a FAIL line | Each line prints its own fix; most are solved by `make demo-reset` |
+| Pressing Approve does nothing | Switch's Slack session went stale: `docker restart blackbox-switch-switch-1` (`make demo-reset` does this). BLACKBOX fails closed, so nothing is deployed meanwhile. |
+| Mattermost hangs (seen on arm64) | `docker restart blackbox-switch-mattermost-1`, wait about 20 s |
+| RootCause uses a "fallback patch" | `claude` is not on `PATH` or not logged in; set `BLACKBOX_CLAUDE_BIN` if it lives elsewhere |
+| "The service is not on the healthy baseline" on the simulation page | The last fix is still deployed: `make demo-reset` |
+
 ## Architecture
 
 BLACKBOX is a team of AI agents that responds to a production incident the way a good on-call team would. It notices the problem, finds the cause, writes and tests a fix, **asks a human for permission**, deploys the fix and proves the service recovered. The agents work together through **Switch**. Humans watch and decide in **Slack**, and the **BLACKBOX dashboard** shows everything live.
