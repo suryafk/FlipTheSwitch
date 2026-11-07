@@ -19,7 +19,7 @@ def test_health_ok_with_real_checks(client: TestClient) -> None:
     assert body["service"] == "blackbox-backend"
     assert body["environment"] == "test"
     assert body["checks"]["database"]["status"] == "ok"
-    assert body["checks"]["migrations"] == {"status": "ok", "detail": "at 0003_slack"}
+    assert body["checks"]["migrations"] == {"status": "ok", "detail": "at 0004_switch_events"}
 
 
 def test_health_degraded_when_database_unreachable(

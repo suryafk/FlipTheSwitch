@@ -89,6 +89,7 @@ async def main(as_ic: bool, wait: int) -> None:
         agent_names=[AGENT_NAMES["control"], AGENT_NAMES["sentinel"]],
         user_names=[cfg.ic_chat_username],
         instructions="Alerts are posted here by BLACKBOX Control. Sentinel triages them.",
+        bridge_id=cfg.incident_bridge_id,
     )
     room_id, room_name = room["id"], room["name"]
     await control.op(
@@ -99,6 +100,11 @@ async def main(as_ic: bool, wait: int) -> None:
     print(f"intake room {room_name} id={room_id}")
 
     token = f"blackbox-ic-check-{suffix}"
+    if as_ic and cfg.incident_bridge_id:
+        raise SystemExit(
+            "--as-ic drives Mattermost only; with SWITCH_INCIDENT_BRIDGE_ID set, "
+            "post the check message yourself."
+        )
     if as_ic:
         if not cfg.mattermost_ic_password:
             raise SystemExit("--as-ic needs MATTERMOST_IC_PASSWORD (test harness only).")
@@ -125,6 +131,7 @@ async def main(as_ic: bool, wait: int) -> None:
             ic_participant_id=ic_id,
             ic_chat_username=cfg.ic_chat_username,
             agent_participants=agent_ids,
+            bridge_id=cfg.incident_bridge_id,
         )
     )
     print(f"incident commander participant id: {ic_id}")

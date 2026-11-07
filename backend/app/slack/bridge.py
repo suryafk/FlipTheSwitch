@@ -35,7 +35,7 @@ log = logging.getLogger("app.slack.bridge")
 
 MAX_ATTEMPTS = 5
 CURSOR_KEY = "bridge_cursor"
-ROOT_UPDATE_KINDS = {"incident.created", "incident.transition"}
+ROOT_UPDATE_KINDS = {"incident.created", "incident.transition", "incident.updated"}
 
 
 @dataclass

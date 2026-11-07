@@ -121,8 +121,8 @@ async def ack(
         "at": now(),
     }
     line = f"ACK {payload.get('handoff_id')}: {status}" + (f" ({reason})" if reason else "")
-    await rt.send_to(
+    result = await rt.send_to(
         room_id, [AGENT_NAMES[payload.get("from_agent", "sentinel")]], render(line, block)
     )
     if status == "accepted":
-        store.set_handoff_status(payload["handoff_id"], "acked", rt.role)
+        store.set_handoff_status(payload["handoff_id"], "acked", rt.role, result.get("event_id"))

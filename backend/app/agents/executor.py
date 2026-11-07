@@ -94,7 +94,10 @@ async def run(approval_id: str) -> dict[str, Any]:
     try:
         # 1. The decision, read back from Switch (never from Recovery or chat).
         verdict = await verify_decision(
-            reader, binding, already_consumed=store.execution_exists(approval_id)
+            reader,
+            binding,
+            already_consumed=store.execution_exists(approval_id),
+            revoked=store.is_revoked(approval_id),
         )
         if not verdict.allowed:
             return refuse(
@@ -134,6 +137,10 @@ async def run(approval_id: str) -> dict[str, Any]:
             execution_id = store.claim_execution(approval_id, iid)
         except TransitionError as exc:
             return refuse(str(exc))
+        # A revocation that landed between verification and the claim still wins.
+        if store.is_revoked(approval_id):
+            store.finish_execution(execution_id, "refused", {"reason": "approval revoked"})
+            return refuse("approval revoked")
         store.transition(iid, "EXECUTING", "executor", f"{execution_id}: deploying {commit[:12]}")
         before = tools.metrics_summary()
         deploy_id = next_deploy_id()

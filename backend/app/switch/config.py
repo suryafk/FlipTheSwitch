@@ -26,8 +26,12 @@ class SwitchSettings(BaseSettings):
     # Alternatively supply an already-minted personal registration key.
     registration_key: str | None = Field(default=None, alias="SWITCH_REGISTRATION_KEY")
 
-    # The incident commander's username on the bridged chat platform (Mattermost).
+    # The incident commander's username on the bridged chat platform.
     ic_chat_username: str = Field(default="user", alias="SWITCH_IC_CHAT_USERNAME")
+    # Which Switch chat connection ("bridge") incident rooms live on. Empty = Switch's default
+    # bridge (Mattermost in the standalone stack). Set it to the Slack connection's id to run
+    # incident rooms, and approval cards, in Slack. List ids with `make switch-bridges`.
+    incident_bridge_id: str | None = Field(default=None, alias="SWITCH_INCIDENT_BRIDGE_ID")
 
     # TEST HARNESS ONLY: lets the proof script act as the IC through Mattermost's own API
     # (pressing the real approval button / posting a real message). Never used by product code.

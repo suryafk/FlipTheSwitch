@@ -698,3 +698,57 @@ def test_incident_view_has_sanitized_timeline(slack_env: FakeSlack, client: Test
     assert client.get("/api/incidents/INC-0").status_code == 404
     assert client.get("/api/incidents/..%2fetc").status_code == 404
     assert client.get("/api/incidents").json()["incidents"][0]["incident_id"] == iid
+
+
+# ---------------- Switch events in the incident thread ----------------
+
+
+def test_bridge_publishes_switch_events_with_ids(slack_env: FakeSlack) -> None:
+    from app.switch.approvals import canonical_json
+
+    connect()
+    iid = open_incident()
+    incidents.update_incident(iid, "sentinel", room_id="room-uuid-1", room_name="incident-1042")
+    payload = {
+        "handoff_id": f"HND-{iid}-001",
+        "incident_id": iid,
+        "from_agent": "sentinel",
+        "to_agent": "rootcause",
+        "handoff_type": "investigation",
+    }
+    incidents.record_handoff(payload, "a" * 64)
+    incidents.set_handoff_status(payload["handoff_id"], "sent", "sentinel", "sw_sent123")
+    incidents.set_handoff_status(payload["handoff_id"], "acked", "rootcause", "sw_ack456")
+    rem = incidents.create_remediation(iid, "base", "", "rootcause")
+    binding = {
+        "action": "apply_remediation_commit",
+        "patch_hash": "sha256:" + "b" * 64,
+        "environment": "staging-sandbox",
+        "expires_at": "2026-11-07T08:00:00Z",
+    }
+    with get_sessionmaker()() as s:
+        s.execute(
+            text(
+                "INSERT INTO approvals (approval_id, incident_id, remediation_id, "
+                "request_id, binding_json, status) VALUES ('APR-9', :i, :r, 'req-9', :b, "
+                "'open')"
+            ),
+            {"i": iid, "r": rem["remediation_id"], "b": canonical_json(binding)},
+        )
+        s.commit()
+    incidents.set_approval_status("APR-9", "open", "recovery", {"switch_state": "open"})
+    incidents.revoke_approval("APR-9", "ic", "wrong patch")
+    run(bridge_for(slack_env).run_once())
+
+    replies = [json.dumps(p["blocks"]) for p in slack_env.posts() if "thread_ts" in p]
+    text_all = "\n".join(replies)
+    assert "Switch incident room created: #incident-1042" in text_all
+    assert "Handed investigation to RootCause through Switch" in text_all
+    assert "sw_sent123" in text_all and "sw_ack456" in text_all
+    assert "Acknowledged handoff" in text_all
+    assert "Switch approval request opened (APR-9)" in text_all
+    assert "staging-sandbox" in text_all
+    assert "revoked in BLACKBOX" in text_all
+    # Every reply is threaded under the one incident root.
+    roots = {p["thread_ts"] for p in slack_env.posts() if "thread_ts" in p}
+    assert len(roots) == 1

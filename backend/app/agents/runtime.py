@@ -4,7 +4,13 @@ The *only* way an agent learns about work is a Switch event on its own WebSocket
 Rules learned live (docs/10 F2): a scope=all connection does not start delivering a room the
 agent joins after the connection opened, so the runtime polls the agent's room list and claims
 each new room on its connection (connect_to_room), then catches up on that room's history with
-read_context so nothing posted before the claim is lost. Events are de-duplicated by message id.
+read_context so nothing posted before the claim is lost.
+
+Reliability (docs/12): the stream reconnects with backoff and resumes from its last sequence;
+after a reconnect every known room is claimed again (claims lapse after 6 s), and after a `gap`
+every room is re-read. Each Switch message is recorded in the `switch_events` ledger with its
+event id, sequence and timestamp before the handler runs, so a resume or a catch-up can never
+make the agent act on the same message twice, even across a process restart.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from typing import Any
 from app.agents.common import AGENT_NAMES, load_credentials
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.incidents import store
 from app.switch.client import SwitchAgentClient
 from app.switch.config import get_switch_settings
 from app.switch.stream import AgentStream, Frame
@@ -41,11 +48,16 @@ class AgentRuntime:
         self.api_url = get_switch_settings().api_url
         self.client = SwitchAgentClient(self.api_url, self.creds)
         self.stream = AgentStream(
-            self.api_url, self.creds.agent_id, self.creds.api_key, f"blackbox-{role}"
+            self.api_url,
+            self.creds.agent_id,
+            self.creds.api_key,
+            f"blackbox-{role}",
+            reconnect=True,
+            on_reconnect=self._reclaim_rooms,
+            on_gap=self._on_gap,
         )
         self.on_message: MessageHandler | None = None
         self.on_outcome: OutcomeHandler | None = None
-        self._seen: set[str] = set()
         self._rooms: set[str] = set()
         self._cursor = 0
         self._lock = asyncio.Lock()
@@ -86,12 +98,28 @@ class AgentRuntime:
 
     # ---------- event intake ----------
 
-    async def _deliver(self, room_id: str, payload: dict[str, Any]) -> None:
+    async def _deliver(
+        self, room_id: str, payload: dict[str, Any], sequence: int | None = None
+    ) -> None:
         mid = payload.get("message_id") or payload.get("id")
-        if mid and mid in self._seen:
+        if not mid:
+            self.log.warning("switch message without an id ignored", extra={"room_id": room_id})
             return
-        if mid:
-            self._seen.add(mid)
+        if not isinstance(payload.get("body", ""), str):
+            self.log.warning("malformed switch message ignored", extra={"event_id": mid})
+            return
+        if not store.claim_switch_event(
+            self.name,
+            str(mid),
+            room_id,
+            sequence=sequence,
+            sender=payload.get("sender"),
+            sender_name=payload.get("sender_name"),
+            addressed=payload.get("addressed"),
+            timestamp_ms=payload.get("timestamp"),
+            via=payload.get("via", "stream"),
+        ):
+            return  # already processed (resume, catch-up or restart)
         if payload.get("sender_name") == self.name:
             return  # our own message
         if self.on_message:
@@ -129,11 +157,34 @@ class AgentRuntime:
                     "sender": e.get("sender"),
                     "sender_name": e.get("sender_name"),
                     "body": body,
+                    "timestamp": e.get("timestamp"),
                     "addressed": bool(self._mention.search(body)),
                     "via": "read_context",
                 },
             )
         self.log.info("claimed room", extra={"room_id": room_id, "history": len(entries)})
+
+    async def _reclaim_rooms(self) -> None:
+        """After a reconnect: room claims lapse after 6 s (S6), so claim every room again."""
+        rooms = sorted(self._rooms)
+        self._rooms.clear()
+        for room_id in rooms:
+            await self._claim_and_catch_up(room_id)
+        store.audit(
+            "switch.reconnected",
+            self.role,
+            {
+                "agent": self.name,
+                "connection_id": self.stream.connection_id,
+                "rooms_reclaimed": len(rooms),
+                "resumed_from": self.stream.cursor,
+            },
+        )
+
+    async def _on_gap(self, data: dict[str, Any]) -> None:
+        """Resume was impossible: re-read every room; the ledger drops what was already seen."""
+        store.audit("switch.gap", self.role, {"agent": self.name, "gap": data})
+        await self._reclaim_rooms()
 
     async def _watch_rooms(self) -> None:
         while True:
@@ -153,13 +204,13 @@ class AgentRuntime:
             self._cursor += len(frames)
             for f in frames:
                 await self._handle_frame(f)
-            if self.stream._task and self.stream._task.done():
+            if not self.stream.alive:  # only after a terminal close (auth, taken_over)
                 raise RuntimeError(f"Switch stream ended: {self.stream.closed_reason}")
             await asyncio.sleep(0.1)
 
     async def _handle_frame(self, f: Frame) -> None:
         if f.event == "message":
-            await self._deliver(f.data.get("room_id", ""), f.data.get("payload", {}))
+            await self._deliver(f.data.get("room_id", ""), f.data.get("payload", {}), f.id)
         elif f.event == "approval_outcome" and self.on_outcome:
             try:
                 await self.on_outcome(f.data)

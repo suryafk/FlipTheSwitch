@@ -77,6 +77,9 @@ class Topology:
     ic_chat_username: str
     # role -> the exact `sender` id Switch stamps on that agent's messages (pinned at bootstrap)
     agent_participants: dict[str, str]
+    # The Switch chat connection incident rooms are created on (None = Switch's default).
+    # The IC participant id above belongs to that connection.
+    bridge_id: str | None = None
 
 
 def save_topology(t: Topology) -> None:

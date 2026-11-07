@@ -243,6 +243,7 @@ class Sentinel:
                 f"War room for {iid}. Agents coordinate here through addressed handoffs. "
                 "Approvals happen only through Switch approval cards."
             ),
+            bridge_id=self.topo.bridge_id,
         )
         store.update_incident(
             iid, "sentinel", room_id=room["id"], room_name=room["name"], severity=severity

@@ -7,10 +7,31 @@ through untouched, and every non-2xx response raises SwitchError with Switch's o
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger("app.switch.client")
+
+# Operations that are safe to retry: reads, and calls Switch treats idempotently. Writes that
+# would duplicate a message or a room (post_message, send_targeted_message, create_room) are
+# never retried automatically: a timeout there is reported and the caller decides.
+IDEMPOTENT_OPS = {
+    "connect_to_room",
+    "read_context",
+    "list_rooms",
+    "list_participants",
+    "get_room_detail",
+    "get_my_context",
+    "list_agents",
+    "list_roles",
+    "get_agent_detail",
+    "list_operations",
+}
+RETRY_STATUSES = {502, 503, 504}
 
 INTEGRATION_PROFILE = {
     "connection_model": "always_on",
@@ -112,31 +133,69 @@ async def register_agent(
 
 
 class SwitchAgentClient:
-    """Calls made with one agent's API key."""
+    """Calls made with one agent's API key.
 
-    def __init__(self, base_url: str, creds: AgentCredentials, timeout: float = 90.0) -> None:
+    Timeouts: 10 s to connect, `timeout` overall (create_room waits on the chat bridge).
+    Retries: idempotent calls only, on network errors and 502/503/504, with backoff.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        creds: AgentCredentials,
+        timeout: float = 90.0,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        max_attempts: int = 3,
+        backoff_seconds: float = 0.5,
+    ) -> None:
         self.creds = creds
         self.http = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {creds.api_key}"},
-            timeout=timeout,
+            timeout=httpx.Timeout(timeout, connect=10.0),
+            transport=transport,
         )
+        self.max_attempts = max_attempts
+        self.backoff = backoff_seconds
+
+    async def _send(
+        self, op: str, method: str, path: str, *, idempotent: bool, **kwargs: Any
+    ) -> httpx.Response:
+        attempts = self.max_attempts if idempotent else 1
+        for attempt in range(1, attempts + 1):
+            try:
+                r = await self.http.request(method, path, **kwargs)
+            except httpx.TransportError as exc:
+                if attempt == attempts:
+                    raise SwitchError(op, 0, f"network: {type(exc).__name__}: {exc}") from exc
+                logger.warning("switch call retry", extra={"op": op, "error": type(exc).__name__})
+            else:
+                if r.status_code not in RETRY_STATUSES or attempt == attempts:
+                    return _check(op, r)
+                logger.warning("switch call retry", extra={"op": op, "status": r.status_code})
+            await asyncio.sleep(self.backoff * attempt)
+        raise AssertionError("unreachable")
 
     async def aclose(self) -> None:
         await self.http.aclose()
 
     async def list_operations(self) -> list[str]:
-        r = _check("list ops", await self.http.get(f"/agents/{self.creds.agent_id}/ops"))
+        r = await self._send(
+            "list ops", "GET", f"/agents/{self.creds.agent_id}/ops", idempotent=True
+        )
         return sorted(r.json()["operations"].keys())
 
     async def op(self, name: str, args: dict[str, Any], connection_id: str | None = None) -> Any:
         """POST /agents/{id}/ops/{name}; arguments unwrapped in the body. [V] S3"""
         headers = {"X-Switch-Connection-Id": connection_id} if connection_id else {}
-        r = _check(
+        r = await self._send(
             f"op {name}",
-            await self.http.post(
-                f"/agents/{self.creds.agent_id}/ops/{name}", json=args, headers=headers
-            ),
+            "POST",
+            f"/agents/{self.creds.agent_id}/ops/{name}",
+            idempotent=name in IDEMPOTENT_OPS,
+            json=args,
+            headers=headers,
         )
         return r.json().get("result")
 
@@ -147,27 +206,28 @@ class SwitchAgentClient:
         agent_names: list[str],
         user_names: list[str],
         instructions: str,
+        bridge_id: str | None = None,
     ) -> dict[str, Any]:
-        return await self.op(
-            "create_room",
-            {
-                "name": name,
-                "description": description,
-                "agent_names": agent_names,
-                "user_names": user_names,
-                "channel_type": "channel_public",
-                "instructions": instructions,
-            },
-        )
+        args: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "agent_names": agent_names,
+            "user_names": user_names,
+            "channel_type": "channel_public",
+            "instructions": instructions,
+        }
+        if bridge_id:
+            args["bridge_id"] = bridge_id  # otherwise Switch uses its default bridge
+        return await self.op("create_room", args)
 
     async def post_message(self, room_id: str, content: str) -> dict[str, Any]:
         """POST /agents/{id}/message: needs no connection. [V] S6"""
-        r = _check(
+        r = await self._send(
             "post message",
-            await self.http.post(
-                f"/agents/{self.creds.agent_id}/message",
-                json={"room_id": room_id, "content": content},
-            ),
+            "POST",
+            f"/agents/{self.creds.agent_id}/message",
+            idempotent=False,
+            json={"room_id": room_id, "content": content},
         )
         return r.json()
 
@@ -178,27 +238,37 @@ class SwitchAgentClient:
 
     async def open_approval(self, session_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Open, or (identical body) re-read, an approval request. Different content → 409."""
-        r = _check(
+        # Idempotent by construction: Switch returns the same row for an identical body.
+        r = await self._send(
             "open approval",
-            await self.http.post(f"/agent-sessions/{session_id}/approvals", json=body),
+            "POST",
+            f"/agent-sessions/{session_id}/approvals",
+            idempotent=True,
+            json=body,
         )
         return r.json()
 
     async def undelivered_outcomes(self) -> list[dict[str, Any]]:
-        r = _check("list outcomes", await self.http.get("/agent-sessions/approvals/outcomes"))
+        r = await self._send(
+            "list outcomes", "GET", "/agent-sessions/approvals/outcomes", idempotent=True
+        )
         return list(r.json())
 
     async def mark_delivered(self, session_id: str, request_id: str) -> dict[str, Any]:
         """Acknowledge an outcome. Only after the executor has recorded its result (docs/04)."""
-        r = _check(
+        r = await self._send(
             "mark delivered",
-            await self.http.post(f"/agent-sessions/{session_id}/approvals/{request_id}/delivered"),
+            "POST",
+            f"/agent-sessions/{session_id}/approvals/{request_id}/delivered",
+            idempotent=True,
         )
         return r.json()
 
     async def close_approval(self, session_id: str, request_id: str) -> dict[str, Any]:
-        r = _check(
+        r = await self._send(
             "close approval",
-            await self.http.post(f"/agent-sessions/{session_id}/approvals/{request_id}/close"),
+            "POST",
+            f"/agent-sessions/{session_id}/approvals/{request_id}/close",
+            idempotent=False,
         )
         return r.json()

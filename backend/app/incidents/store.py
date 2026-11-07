@@ -347,7 +347,8 @@ def approval_by_request(request_id: str) -> dict[str, Any] | None:
 def set_approval_status(approval_id: str, status: str, actor: str, detail: dict) -> None:
     with _session() as s:
         s.execute(
-            text("UPDATE approvals SET status=:s WHERE approval_id=:a"),
+            # A BLACKBOX revocation is final: a later Switch answer cannot undo it.
+            text("UPDATE approvals SET status=:s WHERE approval_id=:a AND status != 'revoked'"),
             {"s": status, "a": approval_id},
         )
         s.commit()
@@ -387,6 +388,81 @@ def finish_execution(execution_id: str, status: str, result: dict) -> None:
         )
         s.commit()
     audit("execution." + status, "executor", {"execution_id": execution_id, **result})
+
+
+def revoke_approval(approval_id: str, actor: str, reason: str) -> bool:
+    """BLACKBOX-side revocation (Switch has no revoke after an answer, docs/01).
+
+    A revoked approval can never be executed: the executor checks this before and after
+    verifying with Switch. Returns False if it was already executed or does not exist.
+    """
+    with _session() as s:
+        n = s.execute(
+            text(
+                "UPDATE approvals SET status='revoked' WHERE approval_id=:a AND status != 'revoked' "
+                "AND approval_id NOT IN (SELECT approval_id FROM executions)"
+            ),
+            {"a": approval_id},
+        ).rowcount
+        s.commit()
+    if n:
+        audit("approval.revoked", actor, {"approval_id": approval_id, "reason": reason})
+    return bool(n)
+
+
+def is_revoked(approval_id: str) -> bool:
+    row = _row("SELECT status FROM approvals WHERE approval_id=:a", a=approval_id)
+    return bool(row and row["status"] == "revoked")
+
+
+# ---------- Switch event ledger ----------
+
+
+def claim_switch_event(
+    agent: str,
+    event_id: str,
+    room_id: str,
+    *,
+    sequence: int | None,
+    sender: str | None,
+    sender_name: str | None,
+    addressed: bool | None,
+    timestamp_ms: int | None,
+    via: str,
+) -> bool:
+    """Record that `agent` is processing Switch event `event_id`. False if it already did.
+
+    Durable across restarts and reconnects, so a resumed stream or a read_context catch-up can
+    never make an agent act on the same Switch message twice.
+    """
+    try:
+        with _session() as s:
+            s.execute(
+                text(
+                    "INSERT INTO switch_events (agent, event_id, room_id, sequence, sender, "
+                    "sender_name, addressed, switch_timestamp_ms, via) VALUES "
+                    "(:a, :e, :r, :q, :s, :n, :ad, :t, :v)"
+                ),
+                {
+                    "a": agent,
+                    "e": event_id,
+                    "r": room_id,
+                    "q": sequence,
+                    "s": sender,
+                    "n": sender_name,
+                    "ad": addressed,
+                    "t": timestamp_ms,
+                    "v": via,
+                },
+            )
+            s.commit()
+        return True
+    except IntegrityError:
+        return False
+
+
+def switch_event(agent: str, event_id: str) -> dict[str, Any] | None:
+    return _row("SELECT * FROM switch_events WHERE agent=:a AND event_id=:e", a=agent, e=event_id)
 
 
 def get_execution_for(approval_id: str) -> dict[str, Any] | None:

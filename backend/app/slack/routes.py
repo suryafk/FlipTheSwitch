@@ -273,7 +273,9 @@ HELP = (
     "• `/blackbox status INC-1042`: one incident\n"
     "• `/blackbox help`: this message\n"
     "Agents work in the Switch incident room. Remediation approvals happen only on the Switch "
-    "approval card; Slack cannot approve or deploy anything."
+    "approval card in that room (press Approve, or reply with the card's handle, e.g. "
+    "`A1 approve`). "
+    "This command cannot approve or deploy anything."
 )
 
 
@@ -326,8 +328,9 @@ async def slash_command(
     )
     if sub in ("approve", "reject", "deploy", "rollback", "run", "exec"):
         return ephemeral(
-            "Slack cannot approve, deploy or run anything. Approvals happen only on "
-            "the Switch approval card in the incident room."
+            "/blackbox cannot approve, deploy or run anything. Approvals happen only on the "
+            "Switch approval card in the incident room: press Approve, or reply with the "
+            "card's handle, e.g. `A1 approve`."
         )
     if sub != "status":
         return ephemeral(HELP)

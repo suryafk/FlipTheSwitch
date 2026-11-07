@@ -5,10 +5,7 @@ Scope: the Slack Event Bridge, OAuth installation, admin endpoints and `/blackbo
 
 ## 1. Invariants
 
-1. **Slack can't authorize anything.** No Slack input reaches Switch, an agent, the executor or
-   incident state. Approvals exist only as Switch approval cards, verified by the executor with
-   Switch (docs/04). `/blackbox approve …` is answered with a refusal. Tests check that no
-   `approval.*` or `execution.*` record appears and the incident state doesn't change.
+1. **The BLACKBOX Slack bot can't authorize anything.** No input to BLACKBOX's own Slack app (the notification bot, `/blackbox`) reaches Switch, an agent, the executor or incident state. `/blackbox approve …` is refused. Approvals exist only as Switch approval cards, verified by the executor with Switch (docs/04). Those cards may be shown in Slack through **Switch's** separate Slack connection (docs/12 §7). There, Switch, not BLACKBOX, records the press and checks who made it, and BLACKBOX still re-verifies the decision with Switch before anything runs.
 2. **One-way data flow.** The bridge reads the audit log and writes to Slack. It has no Switch
    client, no agent credentials and no write access to the incident store. It writes only its own
    tables and audit entries such as `slack.installed`.

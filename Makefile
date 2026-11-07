@@ -9,7 +9,7 @@ BLACKBOX_BACKEND_PORT ?= 8010
 COMPOSE := docker compose -f infra/docker-compose.yml --project-directory . -p blackbox
 
 .PHONY: help env setup dev-backend dev-frontend migrate test test-backend test-frontend \
-        lint format up down logs ps clean slack-key slack-bridge slack-live-test switch-proof switch-proof-auto switch-verify \
+        lint format up down logs ps clean slack-key slack-bridge slack-live-test switch-proof switch-proof-auto switch-livecheck switch-live-test switch-bridges switch-revoke switch-verify \
         agents-bootstrap sim-reset sim-trigger sim-status stack-up stack-down stack-status
 
 help: ## Show this help
@@ -33,6 +33,18 @@ switch-proof: ## Prove the Switch integration; a human acts in Mattermost when p
 
 switch-proof-auto: ## Same, with the TEST HARNESS acting as the IC via Mattermost's API
 	cd backend && uv run python -m app.switch.proof run --as-ic
+
+switch-livecheck: ## Milestone 12: exercise the Switch integration against the real platform (ARGS=--no-harness)
+	cd backend && uv run python -m app.switch.livecheck $(ARGS)
+
+switch-live-test: ## Switch integration tests against the real platform (needs SWITCH_LIVE_TEST=1)
+	cd backend && uv run pytest -p no:cacheprovider -rs -v tests/integration/test_switch_live.py
+
+switch-bridges: ## List Switch's chat connections (ids for SWITCH_INCIDENT_BRIDGE_ID)
+	cd backend && uv run python -m app.switch.bridges
+
+switch-revoke: ## Revoke a BLACKBOX approval (ID=APR-… REASON="…"); closes the Switch request if open
+	cd backend && uv run python -m app.switch.revoke $(ID) "$(REASON)"
 
 switch-verify: ## Independently re-verify the latest stored approval against Switch
 	cd backend && uv run python -m app.switch.proof verify

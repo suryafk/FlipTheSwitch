@@ -112,8 +112,9 @@ TRANSITIONS: dict[str, tuple[str, str, str]] = {
     "VALIDATING": ("recovery", "Validating the proposed fix", "info"),
     "AWAITING_APPROVAL": (
         "recovery",
-        "Approval requested from the incident commander "
-        "in the Switch incident room ({reason}). Slack cannot approve.",
+        "Approval requested from the incident commander on the Switch approval card in the "
+        "incident room ({reason}): press Approve, or reply in the card's thread with the "
+        "card's handle, e.g. `A1 approve`. Replies to this notification do nothing.",
         "warning",
     ),
     "EXECUTING": ("executor", "Sandbox deployment started ({reason})", "info"),
@@ -172,18 +173,72 @@ def describe(
         if top:
             s += f". Top hypothesis ({top.get('confidence')}): {clean(top.get('statement'), 200)}"
         return act("sentinel", s)
-    if kind == "handoff.sent":
+    if kind == "incident.updated":
+        if not payload.get("room_name"):
+            return None  # severity-only updates refresh the root message, no thread reply
+        return act(
+            "sentinel",
+            "Switch incident room created: "
+            f"#{clean(payload.get('room_name'), 80)} (Switch room "
+            f"{clean(payload.get('room_id'), 40)}); agents and the incident commander "
+            "were added",
+        )
+    if kind in ("handoff.sent", "handoff.acked", "handoff.rejected"):
         h = _row(
             "SELECT from_agent, to_agent, handoff_type FROM handoffs WHERE handoff_id=:h",
             h=payload.get("handoff_id"),
         )
         if not h:
             return None
+        hid = clean(payload.get("handoff_id"), 40)
+        ev = payload.get("switch_event_id")
+        ev_text = f", Switch event {clean(ev, 60)}" if ev else ""
+        to_name = AGENTS.get(h["to_agent"], h["to_agent"])
+        if kind == "handoff.sent":
+            return act(
+                h["from_agent"],
+                f"Handed {h['handoff_type'].replace('_', ' ')} to "
+                f"{to_name} through Switch ({hid}{ev_text})",
+            )
+        if kind == "handoff.acked":
+            return act(
+                h["to_agent"],
+                f"Acknowledged handoff {hid} from "
+                f"{AGENTS.get(h['from_agent'], h['from_agent'])} through Switch "
+                f"(sender identity and payload hash verified{ev_text})",
+                "success",
+            )
         return act(
-            h["from_agent"],
-            f"Handed {h['handoff_type'].replace('_', ' ')} to "
-            f"{AGENTS.get(h['to_agent'], h['to_agent'])} through Switch "
-            f"({clean(payload.get('handoff_id'), 40)})",
+            h["to_agent"], f"Rejected handoff {hid}: {clean(payload.get('reason'), 160)}", "warning"
+        )
+    if kind == "approval.open":
+        a = _row(
+            "SELECT binding_json FROM approvals WHERE approval_id=:a", a=payload.get("approval_id")
+        )
+        if not a:
+            return None
+        b = json.loads(a["binding_json"])
+        return act(
+            "recovery",
+            "Switch approval request opened "
+            f"({clean(payload.get('approval_id'), 30)}): {clean(b.get('action'), 40)} of "
+            f"patch {short_hash(b.get('patch_hash'))} to {clean(b.get('environment'), 40)}"
+            f", expires {clean(b.get('expires_at'), 30)}. Answer it on the Switch card.",
+        )
+    if kind == "approval.revoked":
+        return act(
+            "recovery",
+            f"Approval {clean(payload.get('approval_id'), 30)} revoked in "
+            f"BLACKBOX: {clean(payload.get('reason'), 160)}. It can no longer be executed.",
+            "warning",
+        )
+    if kind == "execution.started":
+        return act(
+            "executor",
+            "Decision re-read from Switch and verified independently "
+            "(binding, approver, expiry, single use, not revoked); execution "
+            f"{clean(payload.get('execution_id'), 30)} claimed",
+            "success",
         )
     if kind == "agent.progress":
         template = PROGRESS.get(str(payload.get("milestone")))

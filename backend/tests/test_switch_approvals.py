@@ -144,6 +144,14 @@ def test_refused_on_second_use() -> None:
     assert [c["check"] for c in v.failed] == ["first_use"]
 
 
+def test_refused_when_revoked_in_blackbox() -> None:
+    """Switch cannot revoke an answered request; a BLACKBOX revocation still refuses it."""
+    b = make_binding()
+    v = run(verify_decision(FakeReader(outcomes=[answered(b)]), b, now=NOW, revoked=True))
+    assert not v.allowed
+    assert [c["check"] for c in v.failed] == ["not_revoked"]
+
+
 def test_tampered_patch_hash_is_refused_before_contacting_switch() -> None:
     b = make_binding()
     tampered = ApprovalBinding.from_json({**b.to_json(), "patch_hash": "sha256:" + "0" * 64})

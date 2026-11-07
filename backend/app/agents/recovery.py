@@ -218,8 +218,9 @@ class Recovery:
             f"Approval requested for {iid}: apply {ref['remediation_id']} "
             f"(patch {ref['patch_hash'][:19]}…) to payment-service "
             f"({ENVIRONMENT}). Risk {info['risk']}. Press Approve or Reject on "
-            f"the approval card in this channel; it expires {binding.expires_at}. "
-            "Typing 'approve' does not authorize anything.",
+            f"the approval card in this channel, or reply with the card's handle, e.g. "
+            f"`A1 approve` / `A1 reject`; it expires {binding.expires_at}. A message "
+            "anywhere else does not authorize anything.",
         )
 
     async def request_revision(

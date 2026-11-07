@@ -116,7 +116,10 @@ def create_binding(
         action=action,
         environment=environment,
         room_id=room_id,
-        session_id=incident_id,
+        # One Switch session per approval: on Slack each session's cards share a thread, and a
+        # bare "approved" reply is matched by thread. A session per approval keeps every card in
+        # its own thread so a reply can only ever answer that card (docs/12 §2.7, live finding).
+        session_id=f"{incident_id}-{remediation_id}",
         request_id=request_id,
         nonce=nonce,
         expires_at=expires,
@@ -165,6 +168,7 @@ async def verify_decision(
     *,
     now: datetime | None = None,
     already_consumed: bool = False,
+    revoked: bool = False,
 ) -> Verdict:
     """Fail closed: `allowed` is True only if every check passes."""
     now = now or datetime.now(UTC)
@@ -237,6 +241,8 @@ async def verify_decision(
             f"now={now.isoformat()}",
         ),
         v.add("first_use", not already_consumed, "no prior consumption recorded"),
+        # Switch cannot revoke an answered request; BLACKBOX's revocation is checked here.
+        v.add("not_revoked", not revoked, "no BLACKBOX revocation recorded"),
     ]
     v.allowed = all(checks)
     return v
