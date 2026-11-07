@@ -72,8 +72,8 @@ export function DashboardPage() {
         <Panel title="Active incidents">
           <p className="text-fg-muted">No incident data yet.</p>
           <p className="mt-1 text-xs text-fg-subtle">
-            The incident workflow, Switch integration and agents are not implemented in this phase
-            (project foundation). Nothing on this page is simulated.
+            Incidents are not shown in the UI yet: the agents run through Switch, and their activity
+            is visible in the Mattermost incident channel. Nothing on this page is simulated.
           </p>
         </Panel>
       </div>

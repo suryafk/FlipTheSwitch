@@ -138,3 +138,28 @@ FlipTheSwitch/
 | 8 | **Node versions** | Local Node 26.5 prints a `DEP0205` deprecation warning from Vite tooling (harmless); the Docker build uses Node 22.16 LTS. Recommend standardising on Node 22 LTS (add `.nvmrc`). | Low |
 | 9 | **UI authentication** | None. Ports are bound to localhost. The IC role and revoke action (`docs/06`, `docs/04`) need at least a local login in a later phase. | UI phase |
 | 10 | **The `audit_events` schema** | A minimal schema. The full event model (`incident_id`, provenance, hash-chain columns per `docs/04` §11) is added by migration in the API phase. | API phase |
+
+## 7. Status update (re-verified 2026-11-07, after Tasks 10–12)
+
+The foundation was re-checked against the six completion criteria on the committed code (`f3c99c8`):
+
+| Criterion | Result |
+|---|---|
+| 1. Clone/open the repository | Fresh `git clone`, then `make env`, then `uv sync` and `npm ci`: OK |
+| 2. Configure environment variables | `make env` creates `.env` from `.env.example` |
+| 3. Start with documented commands | `make up` → backend `healthy`, frontend up |
+| 4. Open the frontend | `http://localhost:8088/dashboard` → 200 |
+| 5. Call the health endpoint | `GET /api/health` → 200, database ok, migrations at `0002_incident_store` |
+| 6. Backend and frontend tests | Fresh clone: backend **29 passed**, frontend **8 passed**, ESLint 0 errors |
+
+How the open decisions in §6 were resolved:
+
+- **#2 Git:** the repository is initialized; the first commit is `f3c99c8` on `main`. A scan before committing found no secret values.
+- **#3 Agents:** entry points inside `backend/` (`backend/app/agents/`), sharing the store and the Switch client.
+- **#5 LLM runtime:** headless Claude Code CLI, for both the coding step and text-only calls (gate G1 passed, docs/07).
+- **#6 Gates:** G1 and G3 passed. G2 (host stability) is still open.
+- **#4 Switch stack in `infra/`:** still open (it runs from a scratch clone).
+- **#1 Missing docs:** still open (`context.md` and `docs/02-*` do not exist).
+- **#7–#10:** unchanged.
+
+The schema has since grown: migration `0002_incident_store` adds incidents, handoffs, remediations, approvals and executions (docs/11).
