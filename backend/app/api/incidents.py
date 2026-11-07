@@ -6,6 +6,7 @@ same sanitized mapping Slack uses, so no raw logs, payloads or reasoning are exp
 
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
@@ -33,7 +34,7 @@ FIELDS = (
 
 def public(inc: dict[str, Any]) -> dict[str, Any]:
     out = {k: inc.get(k) for k in FIELDS}
-    out["title"] = clean(out["title"], 300)
+    out["title"] = html.unescape(clean(out["title"], 300))
     return out
 
 
@@ -72,7 +73,7 @@ def get_incident(incident_id: str) -> dict[str, Any]:
                     "seq": a.event_seq,
                     "at": a.at,
                     "agent": a.agent,
-                    "summary": a.summary,
+                    "summary": html.unescape(a.summary),
                     "level": a.level,
                     "kind": a.kind,
                 }

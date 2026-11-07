@@ -99,6 +99,17 @@ async def run(approval_id: str) -> dict[str, Any]:
             already_consumed=store.execution_exists(approval_id),
             revoked=store.is_revoked(approval_id),
         )
+        if verdict.allowed:
+            store.audit(
+                "approval.verified",
+                "executor",
+                {
+                    "approval_id": approval_id,
+                    "request_id": binding.request_id,
+                    "source": verdict.source,
+                    "checks": verdict.checks,
+                },
+            )
         if not verdict.allowed:
             return refuse(
                 "decision not verified: " + ", ".join(c["check"] for c in verdict.failed),

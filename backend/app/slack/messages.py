@@ -54,11 +54,19 @@ def short_hash(value: str | None) -> str:
     return f"sha256:{v[:12]}…"
 
 
+_BRIDGE_IDENTITY = re.compile(
+    r"^switch-[a-z]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-(.+)$"
+)
+
+
 def short_identity(participant: str | None) -> str:
-    """'@switch-mattermost-<bridge>-user:localhost' -> 'user' (display only)."""
+    """'@switch-slack-<bridge uuid>-jane-doe:localhost' -> 'jane-doe' (display only)."""
     if not participant:
         return "unknown"
     local = participant.lstrip("@").split(":")[0]
+    m = _BRIDGE_IDENTITY.match(local)
+    if m:
+        return m.group(1)
     return local.rsplit("-", 1)[-1] if "-" in local else local
 
 
